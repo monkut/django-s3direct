@@ -1,5 +1,4 @@
-twine==1.12.1
-mock==2.0.0
-django
-yapf
-tox
+twine==3.1.1
+mock==4.0.2
+Django==3.1.14
+yapf==0.30.0

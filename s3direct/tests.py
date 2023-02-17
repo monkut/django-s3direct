@@ -391,7 +391,7 @@ class SignatureViewTestCase(TestCase):
         admin = User.objects.create_superuser('admin', 'u@email.com', 'admin')
         admin.save()
 
-    def create_dummy_signing_request(self):
+    def create_dummy_signing_request(self, region=None):
         signing_date = self.EXAMPLE_SIGNING_DATE
         canonical_request = (
             '{request_method}\n/{bucket}/{object_key}\nhost={host}\nx-amz-'
@@ -406,7 +406,7 @@ class SignatureViewTestCase(TestCase):
         )
         credential_scope = '{request_date}/{region}/s3/aws4_request'.format(
             request_date=datetime.strftime(signing_date, '%Y%m%d'),
-            region='eu-west-1',
+            region=region or 'eu-west-1',
         )
         hashed_canonical_request = hashlib.sha256(
             canonical_request.encode('utf-8')).hexdigest()
@@ -421,6 +421,13 @@ class SignatureViewTestCase(TestCase):
             )
         return string_to_sign, signing_date,
 
+    def get_custom_region_from_s3_dests(self, dest='login-not-required'):
+        s3_dest = settings.S3DIRECT_DESTINATIONS.get(dest)
+        region = settings.AWS_S3_REGION_NAME
+        if s3_dest and 'region' in s3_dest:
+            region = s3_dest['region']
+        return region
+
     def test_signing(self):
         """Test signature is as expected for a known signing request."""
         string_to_sign, signing_date = self.create_dummy_signing_request()
@@ -434,6 +441,25 @@ class SignatureViewTestCase(TestCase):
             enforce_csrf_checks=True,
         )
         expected = '{"s3ObjKey": "%s"}' % self.EXPECTED_SIGNATURE
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, expected.encode('utf-8'))
+
+    def test_signing_with_custom_region(self):
+        dest = 'custom-region-bucket'
+        custom_region = self.get_custom_region_from_s3_dests(dest)
+        string_to_sign, signing_date = self.create_dummy_signing_request(
+            region=custom_region)
+        response = self.client.post(
+            reverse('s3direct-signing'),
+            data={
+                'to_sign': string_to_sign,
+                'datetime': datetime.strftime(signing_date, '%Y%m%dT%H%M%SZ'),
+                'dest': dest
+            },
+            enforce_csrf_checks=True,
+        )
+        expected_signature = '018c73aa684d371c0c5adb517a09fa38ac3a1de8df13d0ed78c1020df8508e3d'
+        expected = '{"s3ObjKey": "%s"}' % expected_signature
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, expected.encode('utf-8'))
 
@@ -471,7 +497,7 @@ class SignatureViewTestCase(TestCase):
 
 
 class AWSCredentialsTest(TestCase):
-    @mock.patch('s3direct.utils.session')
+    @mock.patch('s3direct.utils.SESSION')
     @override_settings(AWS_ACCESS_KEY_ID=None, AWS_SECRET_ACCESS_KEY=None)
     def test_retrieves_aws_credentials_from_botocore(self, botocore_mock):
         credentials_mock = mock.Mock(
@@ -479,10 +505,9 @@ class AWSCredentialsTest(TestCase):
             secret_key='secret_key',
             access_key='access_key',
         )
-        botocore_mock.get_session(
-        ).get_credentials.return_value = credentials_mock
+        botocore_mock.get_credentials.return_value = credentials_mock
         credentials = get_aws_credentials()
-        botocore_mock.get_session().get_credentials.assert_called_once_with()
+        botocore_mock.get_credentials.assert_called_once_with()
         self.assertEqual(credentials.token, 'token')
         self.assertEqual(credentials.secret_key, 'secret_key')
         self.assertEqual(credentials.access_key, 'access_key')

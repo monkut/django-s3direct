@@ -1,11 +1,12 @@
 from __future__ import unicode_literals
 
 import os
+from urllib.parse import unquote_plus
+
 from django.forms import widgets
 from django.utils.safestring import mark_safe
 from django.urls import reverse
 from django.template.loader import render_to_string
-from django.utils.http import urlunquote_plus
 from django.conf import settings
 
 
@@ -29,7 +30,7 @@ class S3DirectWidget(widgets.TextInput):
             'name': name,
             'csrf_cookie_name': csrf_cookie_name,
             'file_url': file_url,
-            'file_name': os.path.basename(urlunquote_plus(file_url)),
+            'file_name': os.path.basename(unquote_plus(file_url)),
         }
 
         return mark_safe(
